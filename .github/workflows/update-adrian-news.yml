@@ -1,0 +1,53 @@
+# Guarda este archivo en tu repositorio de GitHub en la ruta:
+#   .github/workflows/update-adrian-news.yml
+#
+# Esto hace que GitHub corra el script automáticamente cada 30 minutos, gratis,
+# sin que tengas que tener una computadora o servidor prendido.
+
+name: Actualizar noticias de Adrián
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # cada 30 minutos
+  workflow_dispatch:          # también te deja correrlo manualmente desde GitHub cuando quieras probar
+
+permissions:
+  contents: write   # necesario para que el workflow pueda hacer commit del digest.txt
+
+jobs:
+  update-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install requests openai
+
+      - name: Paso 1 - Generar digest.txt
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python news_feeder.py generate
+
+      - name: Commit y push del digest.txt
+        run: |
+          git config user.name "adrian-bot"
+          git config user.email "adrian-bot@users.noreply.github.com"
+          git add digest.txt
+          git commit -m "Actualizar noticias de Adrián" || echo "Sin cambios que commitear"
+          git push
+
+      - name: Esperar a que GitHub sirva el archivo actualizado
+        run: sleep 60
+
+      - name: Paso 2 - Actualizar Knowledge base en D-ID
+        env:
+          DID_API_KEY: ${{ secrets.DID_API_KEY }}
+          DID_KNOWLEDGE_ID: ${{ secrets.DID_KNOWLEDGE_ID }}
+          DIGEST_PUBLIC_URL: ${{ secrets.DIGEST_PUBLIC_URL }}
+        run: python news_feeder.py update
