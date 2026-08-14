@@ -136,7 +136,12 @@ def update_did_knowledge():
         f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents", headers=headers
     )
     docs_resp.raise_for_status()
-    for doc in docs_resp.json().get("documents", []):
+    docs_data = docs_resp.json()
+    # D-ID devuelve la lista de documentos directamente (no envuelta en {"documents": [...]})
+    # pero dejamos el caso alternativo por si acaso, para no volver a romper aquí.
+    docs_list = docs_data if isinstance(docs_data, list) else docs_data.get("documents", [])
+
+    for doc in docs_list:
         if doc.get("title") == "Noticias del día":
             requests.delete(
                 f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc['id']}",
