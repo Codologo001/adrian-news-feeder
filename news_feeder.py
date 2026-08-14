@@ -75,7 +75,7 @@ def fetch_recent_articles():
     return articles
 
 
-def fetch_article_excerpt(url):
+def fetch_article_excerpt(url, max_chars=800):
     """Trae un extracto crudo del artículo para dar contexto a OpenAI (no es scraping fino,
     solo texto de la página con las etiquetas HTML quitadas)."""
     try:
@@ -83,32 +83,79 @@ def fetch_article_excerpt(url):
         resp.raise_for_status()
         text = re.sub("<[^<]+?>", " ", resp.text)
         text = re.sub(r"\s+", " ", text)
-        return text[:800]
+        return text[:max_chars]
     except Exception:
         return ""
+
+
+def select_top_articles(client, articles):
+    """Paso 1: con solo los títulos (barato, sin traer el contenido de cada artículo),
+    le pedimos a OpenAI que elija entre 2 y 4 noticias relevantes y variadas.
+    Así no gastamos de más trayendo el contenido completo de artículos que ni van a usarse."""
+    candidates = articles[:MAX_ARTICLES_TO_OPENAI]
+    titles_list = "\n".join(f"{i}: {a['title']}" for i, a in enumerate(candidates))
+
+    prompt = f"""De esta lista de titulares recientes, elige entre 2 y 4 que sean realmente
+relevantes y variados en tema (Perú, política, internacional, deportes, entretenimiento).
+No elijas una noticia solo para llenar una categoría.
+
+Responde ÚNICAMENTE con los números de índice elegidos, separados por coma (ejemplo: 0,3,7).
+Sin texto adicional.
+
+Titulares:
+{titles_list}
+"""
+
+    completion = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = completion.choices[0].message.content.strip()
+
+    indices = []
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if piece.isdigit():
+            idx = int(piece)
+            if 0 <= idx < len(candidates):
+                indices.append(idx)
+
+    if not indices:
+        # Si por algún motivo OpenAI no devolvió índices utilizables, no nos quedamos sin nada:
+        # tomamos las primeras (más recientes) como respaldo.
+        indices = list(range(min(4, len(candidates))))
+
+    return [candidates[i] for i in indices]
 
 
 def build_digest(articles):
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-    raw_material = "\n\n".join(
-        f"Título: {a['title']}\nURL: {a['url']}\nContexto: {fetch_article_excerpt(a['url'])}"
-        for a in articles[:MAX_ARTICLES_TO_OPENAI]
+    selected = select_top_articles(client, articles)
+
+    # Paso 2: SOLO para las noticias ya elegidas, traemos más contenido del artículo original
+    # (un extracto más largo que antes) para poder armar un desarrollo más completo de cada una.
+    material = "\n\n---\n\n".join(
+        f"Título: {a['title']}\nURL: {a['url']}\nContenido: {fetch_article_excerpt(a['url'], max_chars=2500)}"
+        for a in selected
     )
 
     prompt = f"""Eres el editor detrás de Adrián, presentador virtual de Latina.
-A partir de estos titulares recientes, arma un digest breve para que Adrián lo use como base
-de conversación con el público.
+A partir de estas noticias ya seleccionadas, arma DOS secciones para que Adrián las use en
+conversación con el público. Texto plano en ambas, sin markdown, sin viñetas, sin links -
+va a ser leído en voz alta por un avatar.
 
-Reglas:
-- Elige entre 2 y 4 noticias realmente relevantes, con variedad temática cuando exista
-  (Perú, política, internacional, deportes, entretenimiento). No incluyas una noticia
-  solo para llenar una categoría.
-- Para cada una: un título corto + 1-2 líneas explicando qué pasó y por qué es relevante.
-- Texto plano, sin markdown, sin viñetas, sin links - va a ser leído en voz alta por un avatar.
+SECCIÓN 1 - RESUMEN BREVE:
+Un resumen conversacional de las {len(selected)} noticias juntas, para responder cuando alguien
+pregunte "qué hay de nuevo" en general. 1-2 líneas por noticia.
 
-Material en bruto:
-{raw_material}
+SECCIÓN 2 - DETALLE POR NOTICIA:
+Para cada noticia por separado, un desarrollo más completo (6-10 líneas) con más contexto,
+datos concretos y por qué importa - para cuando alguien pregunte específicamente por ese tema.
+Encabeza cada una con el título de la noticia tal cual para que quede claro a qué corresponde.
+
+Noticias seleccionadas:
+{material}
 """
 
     completion = client.chat.completions.create(
