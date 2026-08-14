@@ -154,7 +154,7 @@ def update_did_knowledge():
         headers=headers,
         json={
             "title": "Noticias del día",
-            "documentType": "txt",
+            "documentType": "text",
             "source_url": digest_public_url,
         },
     )
