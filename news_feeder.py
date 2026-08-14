@@ -158,6 +158,11 @@ def update_did_knowledge():
             "source_url": digest_public_url,
         },
     )
+    if not create_resp.ok:
+        # Imprimimos el cuerpo de la respuesta de D-ID para saber EXACTAMENTE qué campo
+        # no le gustó, en vez de quedarnos solo con "400 Bad Request".
+        print("Respuesta de D-ID al crear el documento:")
+        print(create_resp.status_code, create_resp.text)
     create_resp.raise_for_status()
 
 
