@@ -27,11 +27,9 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from openai import OpenAI
 
-# ---------- Configuración (se leen como variables de entorno / GitHub Secrets) ----------
-DID_API_KEY = os.environ["DID_API_KEY"]              # tu API key de D-ID (Basic auth)
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]         # tu API key de OpenAI
-DID_KNOWLEDGE_ID = os.environ["DID_KNOWLEDGE_ID"]     # id del knowledge base de Adrián (knl_xxx)
-DIGEST_PUBLIC_URL = os.environ["DIGEST_PUBLIC_URL"]   # URL pública donde quedará digest.txt tras el commit
+# ---------- Configuración ----------
+# Cada llave se lee justo cuando la función que la necesita se ejecuta, no al arrancar
+# el script. Así el Paso 1 (generar) no falla por no tener las llaves que solo usa el Paso 2 (subir a D-ID).
 
 SITEMAP_URL = "https://latinanoticias.pe/_files/sitemaps/sitemap_news.xml"
 HOURS_WINDOW = 6          # solo considerar artículos de las últimas N horas
@@ -91,7 +89,7 @@ def fetch_article_excerpt(url):
 
 
 def build_digest(articles):
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
     raw_material = "\n\n".join(
         f"Título: {a['title']}\nURL: {a['url']}\nContexto: {fetch_article_excerpt(a['url'])}"
@@ -123,32 +121,36 @@ Material en bruto:
 
 
 def update_did_knowledge():
+    did_api_key = os.environ["DID_API_KEY"]
+    did_knowledge_id = os.environ["DID_KNOWLEDGE_ID"]
+    digest_public_url = os.environ["DIGEST_PUBLIC_URL"]
+
     headers = {
-        "Authorization": f"Basic {DID_API_KEY}",
+        "Authorization": f"Basic {did_api_key}",
         "Content-Type": "application/json",
     }
 
     # 1. Borrar el/los documento(s) de noticias anteriores para que no queden
     #    versiones viejas conviviendo con la nueva (el riesgo que hablamos antes).
     docs_resp = requests.get(
-        f"https://api.d-id.com/knowledge/{DID_KNOWLEDGE_ID}/documents", headers=headers
+        f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents", headers=headers
     )
     docs_resp.raise_for_status()
     for doc in docs_resp.json().get("documents", []):
         if doc.get("title") == "Noticias del día":
             requests.delete(
-                f"https://api.d-id.com/knowledge/{DID_KNOWLEDGE_ID}/documents/{doc['id']}",
+                f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc['id']}",
                 headers=headers,
             )
 
     # 2. Registrar el nuevo documento, apuntando al digest.txt ya publicado en GitHub.
     create_resp = requests.post(
-        f"https://api.d-id.com/knowledge/{DID_KNOWLEDGE_ID}/documents",
+        f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents",
         headers=headers,
         json={
             "title": "Noticias del día",
             "documentType": "txt",
-            "source_url": DIGEST_PUBLIC_URL,
+            "source_url": digest_public_url,
         },
     )
     create_resp.raise_for_status()
