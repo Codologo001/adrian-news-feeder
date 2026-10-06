@@ -174,10 +174,15 @@ def update_did_knowledge():
 
     for doc in docs_list:
         if doc.get("title") == "Noticias del día":
-            requests.delete(
+            delete_resp = requests.delete(
                 f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc['id']}",
                 headers=headers,
             )
+            if not delete_resp.ok:
+                # Avisamos si el borrado falla, en vez de seguir como si nada y
+                # terminar acumulando documentos duplicados.
+                print(f"No se pudo borrar el documento {doc['id']}:")
+                print(delete_resp.status_code, delete_resp.text)
 
     # 2. Registrar el nuevo documento, apuntando al digest.txt ya publicado en GitHub.
     create_resp = requests.post(
