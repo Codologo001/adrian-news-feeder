@@ -25,8 +25,16 @@ from openai import OpenAI
 # las llaves que solo usa "update", y viceversa.
 
 SITEMAP_URL = "https://latinanoticias.pe/_files/sitemaps/sitemap_news.xml"
-HOURS_WINDOW = 6             # solo considerar artículos de las últimas N horas
-MAX_ARTICLES_TO_OPENAI = 15  # tope de candidatos a considerar, para controlar costo
+HOURS_WINDOW = 24            # ventana más amplia para no perder noticias como resultados
+                              # electorales que siguen siendo relevantes un día después
+MAX_ARTICLES_TO_OPENAI = 30  # más candidatos = más variedad real entre categorías
+
+# Mismo orden de prioridad del Manual Editorial (punto 11), para que la selección
+# automática respete el mismo criterio editorial que ya definieron para Adrián.
+PRIORITY_ORDER = (
+    "seguridad nacional, emergencias y desastres, política y gobierno, economía, "
+    "sociedad, internacional, deportes, entretenimiento"
+)
 
 NS = {
     "sm": "http://www.sitemaps.org/schemas/sitemap/0.9",
@@ -66,6 +74,16 @@ def fetch_recent_articles():
     return articles
 
 
+def guess_category(url):
+    """latinanoticias.pe usa rutas como /politica/, /deportes/, /mundo/, etc.
+    Tomamos el primer segmento de la URL como categoría aproximada."""
+    try:
+        path = url.split("latinanoticias.pe/", 1)[1]
+        return path.split("/", 1)[0] or "general"
+    except IndexError:
+        return "general"
+
+
 def fetch_article_excerpt(url, max_chars=800):
     """Trae un extracto crudo del artículo para dar contexto a OpenAI (no es scraping fino,
     solo texto de la página con las etiquetas HTML quitadas)."""
@@ -83,11 +101,23 @@ def select_top_articles(client, articles):
     """Paso 1: con solo los títulos (barato, sin traer el contenido de cada artículo),
     le pedimos a OpenAI que elija entre 2 y 4 noticias relevantes y variadas."""
     candidates = articles[:MAX_ARTICLES_TO_OPENAI]
-    titles_list = "\n".join(f"{i}: {a['title']}" for i, a in enumerate(candidates))
+    titles_list = "\n".join(
+        f"{i} [{guess_category(a['url'])}]: {a['title']}" for i, a in enumerate(candidates)
+    )
 
-    prompt = f"""De esta lista de titulares recientes, elige entre 2 y 4 que sean realmente
-relevantes y variados en tema (Perú, política, internacional, deportes, entretenimiento).
-No elijas una noticia solo para llenar una categoría.
+    prompt = f"""De esta lista de titulares recientes (con su categoría aproximada entre
+corchetes), elige entre 2 y 4 que sean realmente relevantes y variados en tema.
+
+Sigue este orden de prioridad editorial al decidir qué tan importante es cada tema:
+{PRIORITY_ORDER}.
+
+Es decir: si hay una noticia relevante de seguridad nacional, política/gobierno o una
+noticia de coyuntura importante (por ejemplo resultados electorales, decisiones de
+gobierno, emergencias), prioriza incluirla por encima de temas de entretenimiento o
+economía liviana, aunque el titular de entretenimiento sea más "llamativo".
+
+No elijas una noticia solo para llenar una categoría - si no hay nada relevante en una
+categoría, está bien no incluirla.
 
 Responde ÚNICAMENTE con los números de índice elegidos, separados por coma (ejemplo: 0,3,7).
 Sin texto adicional.
