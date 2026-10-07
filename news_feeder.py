@@ -215,14 +215,17 @@ def update_did_knowledge():
     for doc in docs_list:
         doc_title = (doc.get("title") or "").strip().lower()
         if doc_title == "noticias del día":
+            raw_id = doc.get("id", "")
+            # La API devuelve el id con un prefijo enmascarado antes del "#"
+            # (ej. "***#doc_XXXX") - nos quedamos solo con la parte real, después del "#".
+            doc_id = raw_id.split("#")[-1] if "#" in raw_id else raw_id
+
             delete_resp = requests.delete(
-                f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc['id']}",
+                f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc_id}",
                 headers=headers,
             )
             if not delete_resp.ok:
-                # Avisamos si el borrado falla, en vez de seguir como si nada y
-                # terminar acumulando documentos duplicados.
-                print(f"No se pudo borrar el documento {doc['id']}:")
+                print(f"No se pudo borrar el documento {doc_id} (id crudo: {raw_id}):")
                 print(delete_resp.status_code, delete_resp.text)
 
     # 2. Registrar el nuevo documento, apuntando al digest.txt ya publicado en GitHub.
