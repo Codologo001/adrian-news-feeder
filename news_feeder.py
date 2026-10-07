@@ -25,8 +25,8 @@ from openai import OpenAI
 # las llaves que solo usa "update", y viceversa.
 
 SITEMAP_URL = "https://latinanoticias.pe/_files/sitemaps/sitemap_news.xml"
-HOURS_WINDOW = 24            # ventana más amplia para no perder noticias como resultados
-                              # electorales que siguen siendo relevantes un día después
+HOURS_WINDOW = 48            # ventana amplia para no perder noticias como resultados
+                              # electorales de fin de semana que siguen vigentes días después
 MAX_ARTICLES_TO_OPENAI = 30  # más candidatos = más variedad real entre categorías
 
 # Mismo orden de prioridad del Manual Editorial (punto 11), para que la selección
@@ -108,13 +108,17 @@ def select_top_articles(client, articles):
     prompt = f"""De esta lista de titulares recientes (con su categoría aproximada entre
 corchetes), elige entre 2 y 4 que sean realmente relevantes y variados en tema.
 
-Sigue este orden de prioridad editorial al decidir qué tan importante es cada tema:
-{PRIORITY_ORDER}.
+Para decidir qué tan importante es cada tema, considera primero estos dos criterios:
+- Actualidad: ¿es algo que está pasando hoy o muy recientemente? (ej. un partido de la
+  selección peruana el mismo día, resultados de una elección reciente, una emergencia)
+- Interés público: ¿cuánta gente lo va a estar buscando o preguntando hoy?
 
-Es decir: si hay una noticia relevante de seguridad nacional, política/gobierno o una
-noticia de coyuntura importante (por ejemplo resultados electorales, decisiones de
-gobierno, emergencias), prioriza incluirla por encima de temas de entretenimiento o
-economía liviana, aunque el titular de entretenimiento sea más "llamativo".
+Un evento de alto interés nacional (una elección, un partido de la selección, una
+emergencia) debe considerarse relevante SIN IMPORTAR su categoría - no lo descartes solo
+por ser "deportes" o "entretenimiento" si es algo que está pasando ahora.
+
+Solo cuando varios temas compitan por relevancia similar, usa este orden como desempate:
+{PRIORITY_ORDER}.
 
 No elijas una noticia solo para llenar una categoría - si no hay nada relevante en una
 categoría, está bien no incluirla.
@@ -202,8 +206,15 @@ def update_did_knowledge():
     docs_data = docs_resp.json()
     docs_list = docs_data if isinstance(docs_data, list) else docs_data.get("documents", [])
 
+    # Diagnóstico: mostramos tal cual lo que devuelve la API, para confirmar el nombre
+    # real de los campos si el filtro de abajo no encuentra coincidencias.
+    print(f"Documentos encontrados en el Knowledge base ({len(docs_list)}):")
     for doc in docs_list:
-        if doc.get("title") == "Noticias del día":
+        print(" -", doc)
+
+    for doc in docs_list:
+        doc_title = (doc.get("title") or "").strip().lower()
+        if doc_title == "noticias del día":
             delete_resp = requests.delete(
                 f"https://api.d-id.com/knowledge/{did_knowledge_id}/documents/{doc['id']}",
                 headers=headers,
